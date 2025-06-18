@@ -1,8 +1,7 @@
-# Telegram Bot for Managing Posts
-# Updated with working view, delete from channel, and message_id tracking
+# Telegram Bot for Managing Posts with Persistent Storage on Telegram Channel (via message_id)
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InputFile, Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -16,8 +15,8 @@ import asyncio
 import json
 import os
 
-TOKEN = "7517935433:AAH5o9RMy1UHaYl9k_VMrJgVyoKjTui9dfc"
-CHANNEL_ID = "@siiragg_stoke"
+TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 ALLOWED_USERS = ["Ammarnasiiir"]
 POSTS_FILE = "posts.json"
 
@@ -26,13 +25,6 @@ class PostForm(StatesGroup):
     waiting_for_title = State()
     waiting_for_text = State()
     waiting_for_image = State()
-
-class EditForm(StatesGroup):
-    waiting_for_edit_id = State()
-    waiting_for_new_text = State()
-
-class DeleteForm(StatesGroup):
-    waiting_for_delete_id = State()
 
 async def load_posts():
     if not os.path.exists(POSTS_FILE):
@@ -44,197 +36,103 @@ async def save_posts(posts):
     with open(POSTS_FILE, 'w', encoding='utf-8') as f:
         json.dump(posts, f, ensure_ascii=False, indent=2)
 
+async def get_post_by_id(post_id):
+    posts = await load_posts()
+    return next((p for p in posts if p['id'] == post_id), None)
+
 async def id_exists(post_id):
     posts = await load_posts()
     return any(p['id'] == post_id for p in posts)
-
-async def title_exists(title):
-    posts = await load_posts()
-    return any(p['title'] == title for p in posts)
 
 async def main():
     bot = Bot(token=TOKEN, session=AiohttpSession(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
     @dp.message(CommandStart())
-    async def start(message: Message):
+    async def welcome(message: Message):
         if message.from_user.username not in ALLOWED_USERS:
-            await message.answer("🚫  لا تملك صلاحية استخدام هذا البوت تواصل مع تقني فريق سراج التقوى لتتمكن من الوصول للمميزات الخاصة بالبوت ")
+            await message.answer("🚫 عذرًا، هذا البوت مخصص لفريق سراج فقط.")
             return
-        kb = InlineKeyboardBuilder()
-        kb.button(text="➕ رفع منشور", callback_data="upload")
-        kb.button(text="📚 عرض منشورات", callback_data="view")
-        kb.button(text="⚙️ تعديل منشور", callback_data="edit")
-        kb.button(text="🗑️ حذف منشور", callback_data="delete")
-        await message.answer("🔘 الخيارات المتاحة:", reply_markup=kb.as_markup())
+
+        text = (
+            "🌟 <b>مرحبًا بك في مخزن سراج</b> 🌟\n\n"
+            "هذا البوت خُصِّص لحفظ منشورات الصفحة وتنظيمها بدقة،\n"
+            "لتكون في متناول فريق سراج في أي وقت، وبسهولة ويسر.\n\n"
+            "📌 يمكنك من خلال الخيارات التالية رفع منشور أو استعراض منشوراتك.\n\n"
+            "💡 تذكَّر أن هذا العمل لوجه الله، وما كان لله دام واتّصل."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
+            [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")]
+        ])
+        await message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
     @dp.callback_query(F.data == "upload")
     async def handle_upload(callback: CallbackQuery, state: FSMContext):
         await state.set_state(PostForm.waiting_for_id)
-        await callback.message.answer("🔢 أرسل رقم المنشور (ID):")
+        await callback.message.answer("🔢 أرسل رقم معرف للمنشور (مثلاً: 101 أو t01)")
         await callback.answer()
 
     @dp.message(PostForm.waiting_for_id)
     async def receive_id(message: Message, state: FSMContext):
         post_id = message.text.strip()
         if await id_exists(post_id):
-            await message.answer("⚠️ هذا الرقم مستخدم من قبل. اختر رقمًا مختلفًا.")
+            await message.answer("⚠️ هذا المعرف مستخدم من قبل، الرجاء اختيار رقم آخر.")
             return
         await state.update_data(id=post_id)
         await state.set_state(PostForm.waiting_for_title)
-        await message.answer("📝 أرسل عنوان المنشور:")
+        await message.answer("📝 أرسل عنوان المنشور")
 
     @dp.message(PostForm.waiting_for_title)
     async def receive_title(message: Message, state: FSMContext):
-        title = message.text.strip()
-        if await title_exists(title):
-            await message.answer("⚠️ هذا العنوان مستخدم من قبل. اختر عنوانًا مختلفًا.")
-            return
-        await state.update_data(title=title)
+        await state.update_data(title=message.text.strip())
         await state.set_state(PostForm.waiting_for_text)
-        await message.answer("📄 أرسل نص المنشور:")
+        await message.answer("✏️ أرسل نص المنشور")
 
     @dp.message(PostForm.waiting_for_text)
     async def receive_text(message: Message, state: FSMContext):
-        await state.update_data(text=message.text)
+        await state.update_data(text=message.text.strip())
         await state.set_state(PostForm.waiting_for_image)
-        await message.answer("🖼️ أرسل صورة (اختياري). أرسل /skip لتخطي:")
+        await message.answer("🖼️ أرسل صورة (اختياري) أو أرسل /skip لتخطي")
 
     @dp.message(PostForm.waiting_for_image, F.photo)
     async def receive_image(message: Message, state: FSMContext):
+        data = await state.get_data()
         file_id = message.photo[-1].file_id
-        await state.update_data(photo=file_id)
-        await show_review(message, state)
+        await finalize_post_upload(bot, message, state, data, file_id)
 
     @dp.message(PostForm.waiting_for_image, Command("skip"))
     async def skip_image(message: Message, state: FSMContext):
-        await state.update_data(photo=None)
-        await show_review(message, state)
-
-    async def show_review(message: Message, state: FSMContext):
         data = await state.get_data()
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ تأكيد الرفع", callback_data="confirm_upload")],
-                [InlineKeyboardButton(text="❌ تجاهل التغييرات", callback_data="cancel_upload")]
-            ]
-        )
-        await message.answer(
-            f"📋 <b>مراجعة:</b>\n<b>ID:</b> {data['id']}\n<b>عنوان:</b> {data['title']}\n<b>النص:</b> {data['text']}\n<b>صورة:</b> {'نعم' if data['photo'] else 'لا'}",
-            reply_markup=kb,
-        )
-        if data['photo']:
-            await message.bot.send_photo(chat_id=message.chat.id, photo=data['photo'])
+        await finalize_post_upload(bot, message, state, data, None)
 
-    @dp.callback_query(F.data == "confirm_upload")
-    async def confirm_upload(callback: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        text = f"<b>{data['title']}</b>\n\n{data['text']}"
-        try:
-            if data['photo']:
-                sent = await callback.bot.send_photo(
-                    chat_id=CHANNEL_ID,
-                    photo=data['photo'],
-                    caption=text,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                sent = await callback.bot.send_message(
-                    chat_id=CHANNEL_ID,
-                    text=text,
-                    parse_mode=ParseMode.HTML
-                )
-        except Exception as e:
-            await callback.message.answer(f"❌ فشل في النشر:\n{e}")
-            return
+    async def finalize_post_upload(bot: Bot, message: Message, state: FSMContext, data, photo):
+        post_text = f"<b>{data['title']}</b>\n{data['text']}"
+        if photo:
+            sent = await bot.send_photo(CHANNEL_ID, photo=photo, caption=post_text, parse_mode=ParseMode.HTML)
+        else:
+            sent = await bot.send_message(CHANNEL_ID, text=post_text, parse_mode=ParseMode.HTML)
 
         posts = await load_posts()
-        posts.append({
-            "id": data['id'],
-            "title": data['title'],
-            "text": data['text'],
-            "photo": data['photo'],
-            "message_id": sent.message_id
-        })
+        posts.append({"id": data['id'], "title": data['title'], "message_id": sent.message_id})
         await save_posts(posts)
-
-        await callback.message.answer("✅ تم رفع المنشور بنجاح.")
+        await message.answer("✅ تم رفع المنشور وتخزينه بنجاح.")
         await state.clear()
-        await callback.answer()
-
-    @dp.callback_query(F.data == "cancel_upload")
-    async def cancel_upload(callback: CallbackQuery, state: FSMContext):
-        await state.clear()
-        await callback.message.answer("❌ تم تجاهل التغييرات.")
-        await callback.answer()
 
     @dp.callback_query(F.data == "view")
-    async def handle_view(callback: CallbackQuery):
-        posts = await load_posts()
-        if not posts:
-            await callback.message.answer("📭 لا توجد منشورات محفوظة.")
-        else:
-            await callback.message.answer("📚 <b>المنشورات المحفوظة:</b>", parse_mode=ParseMode.HTML)
-            for post in posts:
-                text = f"<b>{post['title']}</b>\n\n{post['text']}"
-                if post['photo']:
-                    await callback.bot.send_photo(chat_id=callback.message.chat.id, photo=post['photo'], caption=text)
-                else:
-                    await callback.bot.send_message(chat_id=callback.message.chat.id, text=text)
+    async def handle_view(callback: CallbackQuery, state: FSMContext):
+        await callback.message.answer("📌 أرسل رقم المعرف (ID) للمنشور الذي ترغب في عرضه:")
+        await state.set_state(PostForm.waiting_for_id)
         await callback.answer()
 
-    @dp.callback_query(F.data == "edit")
-    async def handle_edit(callback: CallbackQuery, state: FSMContext):
-        await state.set_state(EditForm.waiting_for_edit_id)
-        await callback.message.answer("🆔 أرسل ID المنشور الذي تريد تعديله:")
-        await callback.answer()
-
-    @dp.message(EditForm.waiting_for_edit_id)
-    async def receive_edit_id(message: Message, state: FSMContext):
+    @dp.message(PostForm.waiting_for_id)
+    async def view_by_id(message: Message, state: FSMContext):
         post_id = message.text.strip()
-        posts = await load_posts()
-        post = next((p for p in posts if p['id'] == post_id), None)
+        post = await get_post_by_id(post_id)
         if not post:
-            await message.answer("❌ لا يوجد منشور بهذا الرقم.")
-            return
-        await state.update_data(edit_id=post_id)
-        await state.set_state(EditForm.waiting_for_new_text)
-        await message.answer("📝 أرسل النص الجديد:")
-
-    @dp.message(EditForm.waiting_for_new_text)
-    async def receive_new_text(message: Message, state: FSMContext):
-        new_text = message.text.strip()
-        data = await state.get_data()
-        posts = await load_posts()
-        for post in posts:
-            if post['id'] == data['edit_id']:
-                post['text'] = new_text
-                break
-        await save_posts(posts)
-        await message.answer("✅ تم تعديل النص بنجاح.")
-        await state.clear()
-
-    @dp.callback_query(F.data == "delete")
-    async def handle_delete(callback: CallbackQuery, state: FSMContext):
-        await state.set_state(DeleteForm.waiting_for_delete_id)
-        await callback.message.answer("🆔 أرسل ID المنشور الذي تريد حذفه:")
-        await callback.answer()
-
-    @dp.message(DeleteForm.waiting_for_delete_id)
-    async def receive_delete_id(message: Message, state: FSMContext):
-        post_id = message.text.strip()
-        posts = await load_posts()
-        post = next((p for p in posts if p['id'] == post_id), None)
-        if not post:
-            await message.answer("❌ لا يوجد منشور بهذا الرقم.")
+            await message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
         else:
-            try:
-                await message.bot.delete_message(chat_id=CHANNEL_ID, message_id=post["message_id"])
-            except Exception as e:
-                await message.answer(f"⚠️ لم أستطع حذف الرسالة من القناة:\n{e}")
-            new_posts = [p for p in posts if p['id'] != post_id]
-            await save_posts(new_posts)
-            await message.answer("🗑️ تم حذف المنشور بنجاح.")
+            await bot.copy_message(chat_id=message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
         await state.clear()
 
     await dp.start_polling(bot)
