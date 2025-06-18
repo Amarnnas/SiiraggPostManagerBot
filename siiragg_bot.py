@@ -17,7 +17,7 @@ import os
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-ALLOWED_USERS = ["Ammarnasiiir"]
+ALLOWED_USERS = os.getenv("ALLOWED_USERS", "").split(",")
 POSTS_FILE = "posts.json"
 
 class PostForm(StatesGroup):
