@@ -25,6 +25,8 @@ class PostForm(StatesGroup):
     waiting_for_title = State()
     waiting_for_text = State()
     waiting_for_image = State()
+    selecting_post_to_view = State()
+    selecting_post_to_delete = State()
 
 async def load_posts():
     if not os.path.exists(POSTS_FILE):
@@ -58,12 +60,13 @@ async def main():
             "🌟 <b>مرحبًا بك في مخزن سراج</b> 🌟\n\n"
             "هذا البوت خُصِّص لحفظ منشورات الصفحة وتنظيمها بدقة،\n"
             "لتكون في متناول فريق سراج في أي وقت، وبسهولة ويسر.\n\n"
-            "📌 يمكنك من خلال الخيارات التالية رفع منشور أو استعراض منشوراتك.\n\n"
+            "📌 يمكنك من خلال الخيارات التالية رفع منشور أو استعراض منشوراتك أو حذفها.\n\n"
             "💡 تذكَّر أن هذا العمل لوجه الله، وما كان لله دام واتّصل."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
-            [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")]
+            [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")],
+            [InlineKeyboardButton(text="🗑️ حذف منشور", callback_data="delete")]
         ])
         await message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
@@ -121,19 +124,54 @@ async def main():
 
     @dp.callback_query(F.data == "view")
     async def handle_view(callback: CallbackQuery, state: FSMContext):
-        await callback.message.answer("📌 أرسل رقم المعرف (ID) للمنشور الذي ترغب في عرضه:")
-        await state.set_state(PostForm.waiting_for_id)
+        posts = await load_posts()
+        if not posts:
+            await callback.message.answer("📭 لا توجد منشورات حالياً.")
+            return
+
+        buttons = [[InlineKeyboardButton(text=p['title'], callback_data=f"view_{p['id']}")] for p in posts]
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.answer("📌 اختر منشوراً من القائمة لعرضه:", reply_markup=markup)
         await callback.answer()
 
-    @dp.message(PostForm.waiting_for_id)
-    async def view_by_id(message: Message, state: FSMContext):
-        post_id = message.text.strip()
+    @dp.callback_query(F.data.startswith("view_"))
+    async def view_selected(callback: CallbackQuery, state: FSMContext):
+        post_id = callback.data.split("view_")[1]
         post = await get_post_by_id(post_id)
         if not post:
-            await message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
+            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
         else:
-            await bot.copy_message(chat_id=message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
-        await state.clear()
+            await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
+        await callback.answer()
+
+    @dp.callback_query(F.data == "delete")
+    async def handle_delete(callback: CallbackQuery, state: FSMContext):
+        posts = await load_posts()
+        if not posts:
+            await callback.message.answer("📭 لا توجد منشورات لحذفها.")
+            return
+
+        buttons = [[InlineKeyboardButton(text=p['title'], callback_data=f"delete_{p['id']}")] for p in posts]
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.answer("❌ اختر منشوراً لحذفه:", reply_markup=markup)
+        await callback.answer()
+
+    @dp.callback_query(F.data.startswith("delete_"))
+    async def delete_selected(callback: CallbackQuery, state: FSMContext):
+        post_id = callback.data.split("delete_")[1]
+        post = await get_post_by_id(post_id)
+        if not post:
+            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
+        else:
+            try:
+                await bot.delete_message(chat_id=CHANNEL_ID, message_id=post['message_id'])
+            except:
+                pass
+            posts = await load_posts()
+            posts = [p for p in posts if p['id'] != post_id]
+            await save_posts(posts)
+            await callback.message.answer("🗑️ تم حذف المنشور بنجاح.")
+        await callback.answer()
 
     await dp.start_polling(bot)
 
