@@ -1,1 +1,1 @@
-worker: python اسم_ملف_البوت.py
+worker: python siiragg_bot.py
