@@ -22,8 +22,3 @@ Siiragg Stoke Bot is a Telegram bot designed to manage posts in a channel. It al
 
 ---
 
-## Installation | التثبيت
-1. Clone the repository | نسخ المستودع:
-   ```sh
-   git clone https://github.com/your-repo/siiragg-stoke-bot.git
-   cd siiragg-stoke-bot
