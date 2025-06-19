@@ -138,9 +138,9 @@ async def main():
             try:
                 await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
             except:
-                await callback.message.answer("⚠️ تعذر عرض المنشور، يبدو أنو تم حذفو من القناة.")
+                await callback.message.edit_text("⚠️ تعذر عرض المنشور، يبدو أنو تم حذفو من القناة.", reply_markup=back_to_main_kb())
         else:
-            await callback.message.answer("❌ المعذرة، ما لقينا المنشور دا.")
+            await callback.message.edit_text("❌ المعذرة، ما لقينا المنشور دا.", reply_markup=back_to_main_kb())
         await callback.answer()
 
     @dp.callback_query(F.data == "delete")
