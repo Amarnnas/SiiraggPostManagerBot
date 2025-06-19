@@ -1,9 +1,8 @@
-# Telegram Bot for Managing Posts with PostgreSQL Storage (Updated with Enhancements)
+# Telegram Bot for Managing Posts with PostgreSQL Storage (Railway Compatible)
 
 import os
 import asyncio
 import asyncpg
-import uuid
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
@@ -13,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
+from datetime import datetime
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -30,9 +30,9 @@ async def create_pool():
 async def insert_post(pool, post):
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO posts(id, title, text, photo_file_id, message_id, username)
-            VALUES($1, $2, $3, $4, $5, $6)
-        ''', post['id'], post['title'], post['text'], post.get('photo'), post['message_id'], post['username'])
+            INSERT INTO posts(title, text, photo_file_id, message_id, username)
+            VALUES($1, $2, $3, $4, $5)
+        ''', post['title'], post['text'], post.get('photo'), post['message_id'], post['username'])
 
 async def get_all_posts(pool):
     async with pool.acquire() as conn:
@@ -40,11 +40,11 @@ async def get_all_posts(pool):
 
 async def get_post_by_id(pool, post_id):
     async with pool.acquire() as conn:
-        return await conn.fetchrow('SELECT * FROM posts WHERE id=$1', post_id)
+        return await conn.fetchrow('SELECT * FROM posts WHERE id=$1', int(post_id))
 
 async def delete_post(pool, post_id):
     async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM posts WHERE id=$1', post_id)
+        await conn.execute('DELETE FROM posts WHERE id=$1', int(post_id))
 
 async def main():
     bot = Bot(token=TOKEN, session=AiohttpSession(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -54,132 +54,146 @@ async def main():
     @dp.message(F.text.startswith("/start"))
     async def welcome(message: Message):
         if message.from_user.username not in ALLOWED_USERS:
-            await message.answer("🚫 عذرًا، هذا البوت مخصص لفريق سراج فقط.")
+            await message.answer("🚫 يا حبيب، البوت دا مُعدّ فقط لفريق سراج، ما بقدر تتابع هنا. أو للأسف إسمك غير مدرج في البوت إتواصل مع الفريق عشان تتحل المشكلة بإذن الله ")
             return
 
         text = (
-            "🌟 <b>مرحبًا بك في مخزن سراج</b> 🌟\n\n"
-            "هذا البوت خُصِّص لحفظ منشورات الصفحة وتنظيمها بدقة،\n"
-            "📌 يمكنك من خلال الخيارات التالية رفع منشور أو استعراض منشوراتك أو حذفها.\n\n"
-            "💡 تذكَّر أن هذا العمل لوجه الله، وما كان لله دام واتّصل."
+            "السلام عليكم ورحمة الله وبركاته ✨\n\n"
+            "يا رُفقة الدرب، يا من اختارهم الله لحمل هذا النور!\n"
+            "أهلاً بيكم في <b>مخزن سراج</b>، المكان البيجمع منشوراتنا الدعوية بعناية.\n"
+            "من هنا بننظم، بنوثّق، وبنرفع لله خالصًا.\n\n"
+            "💡 خيّرك ظاهر قدامك، فابدأ بما يفتح الله لك."
         )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
-            [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")],
-            [InlineKeyboardButton(text="🗑️ حذف منشور", callback_data="delete")]
-        ])
-        await message.answer(text, reply_markup=kb)
+        await message.answer(text, reply_markup=main_menu_kb(), parse_mode=ParseMode.HTML)
 
     @dp.callback_query(F.data == "upload")
     async def handle_upload(callback: CallbackQuery, state: FSMContext):
         await state.set_state(PostForm.waiting_for_title)
-        await callback.message.answer("📝 أرسل عنوان المنشور", reply_markup=back_markup("start"))
-        await callback.answer()
-
-    def back_markup(callback_data: str):
-        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data=callback_data)]])
-
-    @dp.callback_query(F.data == "start")
-    async def go_to_start(callback: CallbackQuery, state: FSMContext):
-        await state.clear()
-        await welcome(callback.message)
+        await callback.message.edit_text("📌 أرسل عنوان المنشور (للتنظيم فقط، ما بيظهر):", reply_markup=back_to_main_kb())
         await callback.answer()
 
     @dp.message(PostForm.waiting_for_title)
     async def receive_title(message: Message, state: FSMContext):
         await state.update_data(title=message.text.strip())
         await state.set_state(PostForm.waiting_for_text)
-        await message.answer("✏️ أرسل نص المنشور", reply_markup=back_markup("upload"))
+        await message.answer("📝 تمام، أرسل النص الدعوي الآن.", reply_markup=back_to_main_kb())
 
     @dp.message(PostForm.waiting_for_text)
     async def receive_text(message: Message, state: FSMContext):
         await state.update_data(text=message.text.strip())
         await state.set_state(PostForm.waiting_for_image)
-        await message.answer("🖼️ أرسل صورة (اختياري) أو أرسل /skip لتخطي", reply_markup=back_markup("upload"))
+        await message.answer("🖼️ لو عندك صورة أرسلها، ولو ما عندك أكتب /skip", reply_markup=back_to_main_kb())
 
     @dp.message(PostForm.waiting_for_image, F.photo)
     async def receive_image(message: Message, state: FSMContext):
-        data = await state.get_data()
         file_id = message.photo[-1].file_id
-        await finalize_post_upload(bot, pool, message, state, data, file_id)
+        await state.update_data(photo=file_id)
+        await finalize_post_upload(bot, pool, message, state)
 
     @dp.message(PostForm.waiting_for_image, F.text == "/skip")
     async def skip_image(message: Message, state: FSMContext):
+        await state.update_data(photo=None)
+        await finalize_post_upload(bot, pool, message, state)
+
+    async def finalize_post_upload(bot, pool, message, state):
         data = await state.get_data()
-        await finalize_post_upload(bot, pool, message, state, data, None)
+        post_text = f"{data['text']}\n\n📎 نُشر بواسطة: @{message.from_user.username}"
+        photo = data.get("photo")
+        try:
+            if photo:
+                sent = await bot.send_photo(CHANNEL_ID, photo=photo, caption=post_text, parse_mode=ParseMode.HTML)
+            else:
+                sent = await bot.send_message(CHANNEL_ID, text=post_text, parse_mode=ParseMode.HTML)
 
-    async def finalize_post_upload(bot, pool, message, state, data, photo):
-        post_id = str(uuid.uuid4())[:8]
-        username = message.from_user.username or "غير معروف"
-        post_text = f"{data['text']}\n\n— بواسطة: @{username}"
+            await insert_post(pool, {
+                "title": data['title'],
+                "text": data['text'],
+                "photo": photo,
+                "message_id": sent.message_id,
+                "username": message.from_user.username
+            })
 
-        if photo:
-            sent = await bot.send_photo(CHANNEL_ID, photo=photo, caption=post_text, parse_mode=ParseMode.HTML)
-        else:
-            sent = await bot.send_message(CHANNEL_ID, text=post_text, parse_mode=ParseMode.HTML)
-
-        await insert_post(pool, {
-            "id": post_id,
-            "title": data['title'],
-            "text": data['text'],
-            "photo": photo,
-            "message_id": sent.message_id,
-            "username": username
-        })
-        await message.answer("✅ تم رفع المنشور وتخزينه بنجاح.")
+            await message.answer("✅ تم رفع المنشور وتسجيلو، جزاك الله خير 🌸")
+        except Exception as e:
+            await message.answer(f"⚠️ حصل خطأ غير متوقع أثناء رفع المنشور: {e}")
         await state.clear()
 
     @dp.callback_query(F.data == "view")
     async def handle_view(callback: CallbackQuery, state: FSMContext):
         posts = await get_all_posts(pool)
         if not posts:
-            await callback.message.answer("📭 لا توجد منشورات حالياً.")
+            await callback.message.edit_text("📭 مافي منشورات حالياً.", reply_markup=back_to_main_kb())
             return
 
-        buttons = [[InlineKeyboardButton(text=f"{row['title']}", callback_data=f"view_{row['id']}")] for row in posts]
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await callback.message.answer("📌 اختر منشوراً من القائمة لعرضه:", reply_markup=markup)
+        buttons = [[InlineKeyboardButton(text=row["title"], callback_data=f"view_{row['id']}")] for row in posts]
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        await callback.message.edit_text("📚 أختر من المنشورات عشان نعرضه ليك:", reply_markup=markup)
         await callback.answer()
 
     @dp.callback_query(F.data.startswith("view_"))
     async def view_selected(callback: CallbackQuery, state: FSMContext):
         post_id = callback.data.split("view_")[1]
         post = await get_post_by_id(pool, post_id)
-        if not post:
-            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
+        if post:
+            try:
+                await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
+            except:
+                await callback.message.edit_text("⚠️ تعذر عرض المنشور، يبدو أنو تم حذفو من القناة.", reply_markup=back_to_main_kb())
         else:
-            await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
+            await callback.message.edit_text("❌ المعذرة، ما لقينا المنشور دا.", reply_markup=back_to_main_kb())
         await callback.answer()
 
     @dp.callback_query(F.data == "delete")
     async def handle_delete(callback: CallbackQuery, state: FSMContext):
         posts = await get_all_posts(pool)
         if not posts:
-            await callback.message.answer("📭 لا توجد منشورات لحذفها.")
+            await callback.message.edit_text("📭 لا توجد منشورات للحذف.", reply_markup=back_to_main_kb())
             return
 
-        buttons = [[InlineKeyboardButton(text=f"{row['title']}", callback_data=f"delete_{row['id']}")] for row in posts]
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await callback.message.answer("❌ اختر منشوراً لحذفه:", reply_markup=markup)
+        buttons = [[InlineKeyboardButton(text=row["title"], callback_data=f"delete_{row['id']}")] for row in posts]
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        await callback.message.edit_text("🗑️ أختر منشور عشان نحذفو:", reply_markup=markup)
         await callback.answer()
 
     @dp.callback_query(F.data.startswith("delete_"))
     async def delete_selected(callback: CallbackQuery, state: FSMContext):
         post_id = callback.data.split("delete_")[1]
         post = await get_post_by_id(pool, post_id)
-        if not post:
-            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
-        else:
+        if post:
             try:
                 await bot.delete_message(chat_id=CHANNEL_ID, message_id=post['message_id'])
             except:
                 pass
             await delete_post(pool, post_id)
-            await callback.message.answer("🗑️ تم حذف المنشور بنجاح.")
+            await callback.message.edit_text("✅ تم حذف المنشور بنجاح. بارك الله فيك على التنظيم 🌿", reply_markup=back_to_main_kb())
+        else:
+            await callback.message.edit_text("❌ المنشور غير موجود أصلاً.", reply_markup=back_to_main_kb())
         await callback.answer()
+
+    @dp.callback_query(F.data == "back")
+    async def go_back(callback: CallbackQuery, state: FSMContext):
+        await callback.message.edit_text(
+            "🔙 رجعناك للقائمة الرئيسية، الله يفتح عليك دايمًا 🌱",
+            reply_markup=main_menu_kb(),
+            parse_mode=ParseMode.HTML
+        )
+        await callback.answer()
+
+    def main_menu_kb():
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
+                [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")],
+                [InlineKeyboardButton(text="🗑️ حذف منشور", callback_data="delete")]
+            ]
+        )
+
+    def back_to_main_kb():
+        return InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]]
+        )
 
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())
-    
