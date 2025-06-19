@@ -46,6 +46,15 @@ async def delete_post(pool, post_id):
     async with pool.acquire() as conn:
         await conn.execute('DELETE FROM posts WHERE id=$1', int(post_id))
 
+def main_menu_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
+            [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")],
+            [InlineKeyboardButton(text="🗑️ حذف منشور", callback_data="delete")]
+        ]
+    )
+
 async def main():
     bot = Bot(token=TOKEN, session=AiohttpSession(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
