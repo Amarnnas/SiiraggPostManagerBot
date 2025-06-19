@@ -40,11 +40,11 @@ async def get_all_posts(pool):
 
 async def get_post_by_id(pool, post_id):
     async with pool.acquire() as conn:
-        return await conn.fetchrow('SELECT * FROM posts WHERE id=$1', int(post_id))
+        return await conn.fetchrow('SELECT * FROM posts WHERE id=$1', post_id)
 
 async def delete_post(pool, post_id):
     async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM posts WHERE id=$1', int(post_id))
+        await conn.execute('DELETE FROM posts WHERE id=$1', post_id)
 
 async def main():
     bot = Bot(token=TOKEN, session=AiohttpSession(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -197,3 +197,4 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
