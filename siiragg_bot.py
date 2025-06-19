@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
+from datetime import datetime
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -19,7 +20,6 @@ ALLOWED_USERS = os.getenv("ALLOWED_USERS", "").split(",")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 class PostForm(StatesGroup):
-    waiting_for_id = State()
     waiting_for_title = State()
     waiting_for_text = State()
     waiting_for_image = State()
@@ -30,9 +30,9 @@ async def create_pool():
 async def insert_post(pool, post):
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO posts(id, title, text, photo_file_id, message_id)
-            VALUES($1, $2, $3, $4, $5)
-        ''', post['id'], post['title'], post['text'], post.get('photo'), post['message_id'])
+            INSERT INTO posts(id, title, text, photo_file_id, message_id, username)
+            VALUES(DEFAULT, $1, $2, $3, $4, $5)
+        ''', post['title'], post['text'], post.get('photo'), post['message_id'], post['username'])
 
 async def get_all_posts(pool):
     async with pool.acquire() as conn:
@@ -40,16 +40,11 @@ async def get_all_posts(pool):
 
 async def get_post_by_id(pool, post_id):
     async with pool.acquire() as conn:
-        return await conn.fetchrow('SELECT * FROM posts WHERE id=$1', post_id)
+        return await conn.fetchrow('SELECT * FROM posts WHERE id=$1', int(post_id))
 
 async def delete_post(pool, post_id):
     async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM posts WHERE id=$1', post_id)
-
-async def id_exists(pool, post_id):
-    async with pool.acquire() as conn:
-        result = await conn.fetchval('SELECT COUNT(*) FROM posts WHERE id=$1', post_id)
-        return result > 0
+        await conn.execute('DELETE FROM posts WHERE id=$1', int(post_id))
 
 async def main():
     bot = Bot(token=TOKEN, session=AiohttpSession(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -66,8 +61,8 @@ async def main():
             "🌟 <b>مرحبًا بك في مخزن سراج</b> 🌟\n\n"
             "هذا البوت خُصِّص لحفظ منشورات الصفحة وتنظيمها بدقة،\n"
             "لتكون في متناول فريق سراج في أي وقت، وبسهولة ويسر.\n\n"
-            "📌 يمكنك من خلال الخيارات التالية رفع منشور أو استعراض منشوراتك أو حذفها.\n\n"
-            "💡 تذكَّر أن هذا العمل لوجه الله، وما كان لله دام واتّصل."
+            "📌 يمكنك من خلال الأزرار أدناه إدارة منشوراتك.\n"
+            "💡 ما دام لله يبقى، وما سواه يَبلى. فجدد النية، واستعن بالله."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
@@ -78,31 +73,21 @@ async def main():
 
     @dp.callback_query(F.data == "upload")
     async def handle_upload(callback: CallbackQuery, state: FSMContext):
-        await state.set_state(PostForm.waiting_for_id)
-        await callback.message.answer("🔢 أرسل رقم معرف للمنشور (مثلاً: 101 أو t01)")
-        await callback.answer()
-
-    @dp.message(PostForm.waiting_for_id)
-    async def receive_id(message: Message, state: FSMContext):
-        post_id = message.text.strip()
-        if await id_exists(pool, post_id):
-            await message.answer("⚠️ هذا المعرف مستخدم من قبل، الرجاء اختيار رقم آخر.")
-            return
-        await state.update_data(id=post_id)
         await state.set_state(PostForm.waiting_for_title)
-        await message.answer("📝 أرسل عنوان المنشور")
+        await callback.message.edit_text("📝 أرسل عنوان المنشور", reply_markup=back_to_main_kb())
+        await callback.answer()
 
     @dp.message(PostForm.waiting_for_title)
     async def receive_title(message: Message, state: FSMContext):
         await state.update_data(title=message.text.strip())
         await state.set_state(PostForm.waiting_for_text)
-        await message.answer("✏️ أرسل نص المنشور")
+        await message.answer("✏️ أرسل نص المنشور", reply_markup=back_to_main_kb())
 
     @dp.message(PostForm.waiting_for_text)
     async def receive_text(message: Message, state: FSMContext):
         await state.update_data(text=message.text.strip())
         await state.set_state(PostForm.waiting_for_image)
-        await message.answer("🖼️ أرسل صورة (اختياري) أو أرسل /skip لتخطي")
+        await message.answer("🖼️ أرسل صورة (اختياري) أو أرسل /skip لتخطي", reply_markup=back_to_main_kb())
 
     @dp.message(PostForm.waiting_for_image, F.photo)
     async def receive_image(message: Message, state: FSMContext):
@@ -116,18 +101,18 @@ async def main():
         await finalize_post_upload(bot, pool, message, state, data, None)
 
     async def finalize_post_upload(bot, pool, message, state, data, photo):
-        post_text = f"<b>{data['title']}</b>\n{data['text']}"
+        post_text = f"{data['text']}\n\n🆔 @{message.from_user.username}"
         if photo:
             sent = await bot.send_photo(CHANNEL_ID, photo=photo, caption=post_text, parse_mode=ParseMode.HTML)
         else:
             sent = await bot.send_message(CHANNEL_ID, text=post_text, parse_mode=ParseMode.HTML)
 
         await insert_post(pool, {
-            "id": data['id'],
             "title": data['title'],
             "text": data['text'],
             "photo": photo,
-            "message_id": sent.message_id
+            "message_id": sent.message_id,
+            "username": message.from_user.username
         })
         await message.answer("✅ تم رفع المنشور وتخزينه بنجاح.")
         await state.clear()
@@ -136,50 +121,60 @@ async def main():
     async def handle_view(callback: CallbackQuery, state: FSMContext):
         posts = await get_all_posts(pool)
         if not posts:
-            await callback.message.answer("📭 لا توجد منشورات حالياً.")
+            await callback.message.edit_text("📭 لا توجد منشورات حالياً.", reply_markup=back_to_main_kb())
             return
 
         buttons = [[InlineKeyboardButton(text=row["title"], callback_data=f"view_{row['id']}")] for row in posts]
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await callback.message.answer("📌 اختر منشوراً من القائمة لعرضه:", reply_markup=markup)
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        await callback.message.edit_text("📌 اختر منشوراً من القائمة لعرضه:", reply_markup=markup)
         await callback.answer()
 
     @dp.callback_query(F.data.startswith("view_"))
     async def view_selected(callback: CallbackQuery, state: FSMContext):
         post_id = callback.data.split("view_")[1]
         post = await get_post_by_id(pool, post_id)
-        if not post:
-            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
-        else:
+        if post:
             await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
+        else:
+            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
         await callback.answer()
 
     @dp.callback_query(F.data == "delete")
     async def handle_delete(callback: CallbackQuery, state: FSMContext):
         posts = await get_all_posts(pool)
         if not posts:
-            await callback.message.answer("📭 لا توجد منشورات لحذفها.")
+            await callback.message.edit_text("📭 لا توجد منشورات لحذفها.", reply_markup=back_to_main_kb())
             return
 
         buttons = [[InlineKeyboardButton(text=row["title"], callback_data=f"delete_{row['id']}")] for row in posts]
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await callback.message.answer("❌ اختر منشوراً لحذفه:", reply_markup=markup)
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        await callback.message.edit_text("❌ اختر منشوراً لحذفه:", reply_markup=markup)
         await callback.answer()
 
     @dp.callback_query(F.data.startswith("delete_"))
     async def delete_selected(callback: CallbackQuery, state: FSMContext):
         post_id = callback.data.split("delete_")[1]
         post = await get_post_by_id(pool, post_id)
-        if not post:
-            await callback.message.answer("❌ لم يتم العثور على منشور بهذا المعرف.")
-        else:
+        if post:
             try:
                 await bot.delete_message(chat_id=CHANNEL_ID, message_id=post['message_id'])
             except:
                 pass
             await delete_post(pool, post_id)
-            await callback.message.answer("🗑️ تم حذف المنشور بنجاح.")
+            await callback.message.edit_text("🗑️ تم حذف المنشور بنجاح.", reply_markup=back_to_main_kb())
+        else:
+            await callback.message.edit_text("❌ لم يتم العثور على منشور بهذا المعرف.", reply_markup=back_to_main_kb())
         await callback.answer()
+
+    @dp.callback_query(F.data == "back")
+    async def go_back(callback: CallbackQuery, state: FSMContext):
+        await welcome(callback.message)
+        await callback.answer()
+
+    def back_to_main_kb():
+        return InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]]
+        )
 
     await dp.start_polling(bot)
 
