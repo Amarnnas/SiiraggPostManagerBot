@@ -99,19 +99,23 @@ async def main():
         data = await state.get_data()
         post_text = f"{data['text']}\n\n📎 نُشر بواسطة: @{message.from_user.username}"
         photo = data.get("photo")
-        if photo:
-            sent = await bot.send_photo(CHANNEL_ID, photo=photo, caption=post_text, parse_mode=ParseMode.HTML)
-        else:
-            sent = await bot.send_message(CHANNEL_ID, text=post_text, parse_mode=ParseMode.HTML)
+        try:
+            if photo:
+                sent = await bot.send_photo(CHANNEL_ID, photo=photo, caption=post_text, parse_mode=ParseMode.HTML)
+            else:
+                sent = await bot.send_message(CHANNEL_ID, text=post_text, parse_mode=ParseMode.HTML)
 
-        await insert_post(pool, {
-            "title": data['title'],
-            "text": data['text'],
-            "photo": photo,
-            "message_id": sent.message_id,
-            "username": message.from_user.username
-        })
-        await message.answer("✅ تم رفع المنشور وتسجيلو، جزاك الله خير 🌸")
+            await insert_post(pool, {
+                "title": data['title'],
+                "text": data['text'],
+                "photo": photo,
+                "message_id": sent.message_id,
+                "username": message.from_user.username
+            })
+
+            await message.answer("✅ تم رفع المنشور وتسجيلو، جزاك الله خير 🌸")
+        except Exception as e:
+            await message.answer(f"⚠️ حصل خطأ غير متوقع أثناء رفع المنشور: {e}")
         await state.clear()
 
     @dp.callback_query(F.data == "view")
@@ -131,9 +135,12 @@ async def main():
         post_id = callback.data.split("view_")[1]
         post = await get_post_by_id(pool, post_id)
         if post:
-            await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
+            try:
+                await bot.copy_message(chat_id=callback.message.chat.id, from_chat_id=CHANNEL_ID, message_id=post['message_id'])
+            except:
+                await callback.message.answer("⚠️ تعذر عرض المنشور، يبدو أنو تم حذفو من القناة.")
         else:
-            await callback.message.answer("❌ للأسف ما لقينا المنشور.")
+            await callback.message.answer("❌ المعذرة، ما لقينا المنشور دا.")
         await callback.answer()
 
     @dp.callback_query(F.data == "delete")
@@ -158,9 +165,9 @@ async def main():
             except:
                 pass
             await delete_post(pool, post_id)
-            await callback.message.edit_text("✅ تم حذف المنشور.", reply_markup=back_to_main_kb())
+            await callback.message.edit_text("✅ تم حذف المنشور بنجاح. بارك الله فيك على التنظيم 🌿", reply_markup=back_to_main_kb())
         else:
-            await callback.message.edit_text("❌ المنشور غير موجود.", reply_markup=back_to_main_kb())
+            await callback.message.edit_text("❌ المنشور غير موجود أصلاً.", reply_markup=back_to_main_kb())
         await callback.answer()
 
     @dp.callback_query(F.data == "back")
