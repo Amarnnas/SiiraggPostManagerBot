@@ -29,7 +29,8 @@ def main_menu_kb():
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ رفع منشور", callback_data="upload")],
             [InlineKeyboardButton(text="📚 عرض منشور", callback_data="view")],
-            [InlineKeyboardButton(text="🗑️ حذف منشور", callback_data="delete")]
+            [InlineKeyboardButton(text="🗑️ حذف منشور", callback_data="delete")],
+            [InlineKeyboardButton(text="📖 دليل الاستخدام", callback_data="help")]
         ]
     )
 
@@ -68,7 +69,7 @@ async def main():
     @dp.message(F.text.startswith("/start"))
     async def welcome(message: Message):
         if message.from_user.username not in ALLOWED_USERS:
-            await message.answer("🚫 يا حبيب، البوت دا مُعدّ فقط لفريق سراج، ما بقدر تتابع هنا. أو للأسف إسمك غير مدرج في البوت إتواصل مع الفريق عشان تتحل المشكلة بإذن الله ")
+            await message.answer("🚫 يا حبيب، البوت دا مُعدّ فقط لفريق سراج، ما بقدر تتابع هنا. أو للأسف إسمك غير مدرج في البوت. اتواصل مع الفريق عشان تتحل المشكلة بإذن الله.")
             return
 
         text = (
@@ -76,7 +77,8 @@ async def main():
             "يا رُفقة الدرب، يا من اختارهم الله لحمل هذا النور!\n"
             "أهلاً بيكم في <b>مخزن سراج</b>، المكان البيجمع منشوراتنا الدعوية بعناية.\n"
             "من هنا بننظم، بنوثّق، وبنرفع لله خالصًا.\n\n"
-            "💡 خيّرك ظاهر قدامك، فابدأ بما يفتح الله لك."
+            "💡 خيّرك ظاهر قدامك، فابدأ بما يفتح الله لك.\n\n"
+            "⬇️ اختار من القائمة:"
         )
         await message.answer(text, reply_markup=main_menu_kb(), parse_mode=ParseMode.HTML)
 
@@ -182,6 +184,20 @@ async def main():
             await callback.message.edit_text("✅ تم حذف المنشور بنجاح. بارك الله فيك على التنظيم 🌿", reply_markup=back_to_main_kb())
         else:
             await callback.message.edit_text("❌ المنشور غير موجود أصلاً.", reply_markup=back_to_main_kb())
+        await callback.answer()
+
+    @dp.callback_query(F.data == "help")
+    async def show_help(callback: CallbackQuery, state: FSMContext):
+        help_text = (
+            "📖 <b>دليل استخدام البوت</b>:\n\n"
+            "1. ➕ <b>رفع منشور:</b> اختار العنوان، بعدين النص، وبعدين الصورة (اختياري).\n"
+            "2. 📚 <b>عرض منشور:</b> تشوف أي منشور سابق.\n"
+            "3. 🗑️ <b>حذف منشور:</b> تختار منشور وتحذفو.\n\n"
+            "📌 كل منشور يُرفع تلقائيًا على القناة.\n"
+            "📎 يُسجل في قاعدة البيانات تلقائيًا.\n"
+            "🧠 خلي نيتك خالصة لله، وابدأ بنشر الخير ❤️"
+        )
+        await callback.message.edit_text(help_text, reply_markup=back_to_main_kb(), parse_mode=ParseMode.HTML)
         await callback.answer()
 
     @dp.callback_query(F.data == "back")
