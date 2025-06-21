@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 import asyncpg
@@ -144,6 +143,73 @@ async def main():
         await message.answer("✅ تم رفع المنشور بدون صورة. بارك الله فيك.", reply_markup=main_menu_kb())
         await state.clear()
 
+    @dp.callback_query(F.data == "view")
+    async def handle_view(callback: CallbackQuery):
+        posts = await get_all_posts(pool)
+        if not posts:
+            await callback.message.edit_text("❌ لا توجد منشورات لعرضها.", reply_markup=back_to_main_kb())
+            return
+        buttons = [[InlineKeyboardButton(text=row['title'], callback_data=f"show_post_{row['id']}")] for row in posts]
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        await callback.message.edit_text("📚 اختر المنشور الذي تريد عرضه:", reply_markup=markup)
+
+    @dp.callback_query(F.data.startswith("show_post_"))
+    async def show_post(callback: CallbackQuery):
+        post_id = int(callback.data.split("_")[2])
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            msg = f"<b>{post['title']}</b>\n\n{post['text']}"
+            if post['photo_file_id']:
+                await callback.message.answer_photo(photo=post['photo_file_id'], caption=msg, reply_markup=back_to_main_kb())
+            else:
+                await callback.message.edit_text(msg, reply_markup=back_to_main_kb())
+        else:
+            await callback.message.edit_text("⛔️ المنشور غير موجود.", reply_markup=back_to_main_kb())
+
+    @dp.callback_query(F.data == "edit")
+    async def handle_edit(callback: CallbackQuery, state: FSMContext):
+        posts = await get_all_posts(pool)
+        if not posts:
+            await callback.message.edit_text("❌ لا توجد منشورات للتعديل.", reply_markup=back_to_main_kb())
+            return
+        buttons = [[InlineKeyboardButton(text=row['title'], callback_data=f"select_edit_{row['id']}")] for row in posts]
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        await callback.message.edit_text("✏️ اختر المنشور الذي تريد تعديله:", reply_markup=markup)
+
+    @dp.callback_query(F.data.startswith("select_edit_"))
+    async def select_edit_post(callback: CallbackQuery, state: FSMContext):
+        post_id = int(callback.data.split("_")[2])
+        await state.update_data(edit_post_id=post_id)
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            msg = f"تعديل المنشور: <b>{post['title']}</b>\n\nاختر ما تريد تعديله:"
+            await callback.message.edit_text(msg, reply_markup=edit_post_fields_kb())
+        else:
+            await callback.message.edit_text("⛔️ المنشور غير موجود.", reply_markup=back_to_main_kb())
+
+    @dp.callback_query(F.data == "edit_title")
+    async def edit_title(callback: CallbackQuery, state: FSMContext):
+        await state.set_state(PostForm.waiting_for_edit_value)
+        await state.update_data(edit_field="title")
+        await callback.message.edit_text("📝 أرسل العنوان الجديد:")
+
+    @dp.callback_query(F.data == "edit_text")
+    async def edit_text(callback: CallbackQuery, state: FSMContext):
+        await state.set_state(PostForm.waiting_for_edit_value)
+        await state.update_data(edit_field="text")
+        await callback.message.edit_text("📄 أرسل النص الجديد:")
+
+    @dp.message(PostForm.waiting_for_edit_value)
+    async def receive_edit_value(message: Message, state: FSMContext):
+        data = await state.get_data()
+        post_id = data['edit_post_id']
+        field = data['edit_field']
+        new_value = message.text
+        
+        await update_post(pool, post_id, field, new_value)
+        await message.answer("✅ تم تعديل المنشور بنجاح. بارك الله فيك.", reply_markup=main_menu_kb())
+        await state.clear()
+
     @dp.callback_query(F.data == "delete")
     async def handle_delete(callback: CallbackQuery, state: FSMContext):
         posts = await get_all_posts(pool)
@@ -171,7 +237,8 @@ async def main():
         await callback.message.edit_text("🗑️ تم حذف المنشور بنجاح. نسأل الله الإخلاص والقبول.", reply_markup=main_menu_kb())
 
     @dp.callback_query(F.data == "back")
-    async def go_back(callback: CallbackQuery):
+    async def go_back(callback: CallbackQuery, state: FSMContext):
+        await state.clear()
         await callback.message.edit_text("🔙 رجعناك للقائمة الرئيسية جزاك الله خيرا 🌿", reply_markup=main_menu_kb())
 
     await dp.start_polling(bot)
