@@ -1,4 +1,3 @@
-# Telegram Bot for Managing Posts with PostgreSQL (No Channel Required)
 
 import os
 import asyncio
@@ -26,6 +25,7 @@ class PostForm(StatesGroup):
     waiting_for_edit_value = State()
     waiting_for_delete_confirm = State()
 
+
 def main_menu_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -49,6 +49,14 @@ def edit_post_fields_kb():
             [InlineKeyboardButton(text="📤 تغيير الصورة", callback_data="change_photo")],
             [InlineKeyboardButton(text="🗑️ حذف الصورة فقط", callback_data="remove_photo")],
             [InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]
+        ]
+    )
+
+def confirm_delete_kb(post_id):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ تأكيد الحذف", callback_data=f"confirm_delete_{post_id}")],
+            [InlineKeyboardButton(text="🔙 إلغاء", callback_data="back")]
         ]
     )
 
@@ -92,99 +100,75 @@ async def main():
             "السلام عليكم ورحمة الله وبركاته 🌿\n\nأهلاً وسهلاً بك في <b>مخزن سراج</b> هنا يمكنك إدارة منشوراتك:\n\n🔹 رفع منشور جديد\n🔹 عرض المنشورات\n🔹 تعديل المنشورات\n🔹 حذف المنشورات\n\nاختر ما يناسبك من القائمة أدناه 👇",
             reply_markup=main_menu_kb())
 
-    @dp.callback_query(F.data == "view")
-    async def handle_view(callback: CallbackQuery, state: FSMContext):
+    @dp.callback_query(F.data == "upload")
+    async def upload_post(callback: CallbackQuery, state: FSMContext):
+        await state.set_state(PostForm.waiting_for_title)
+        await callback.message.edit_text("📝 أرسل عنوان المنشور:")
+
+    @dp.message(PostForm.waiting_for_title)
+    async def receive_title(message: Message, state: FSMContext):
+        await state.update_data(title=message.text)
+        await state.set_state(PostForm.waiting_for_text)
+        await message.answer("📄 الآن أرسل نص المنشور:")
+
+    @dp.message(PostForm.waiting_for_text)
+    async def receive_text(message: Message, state: FSMContext):
+        await state.update_data(text=message.text)
+        await state.set_state(PostForm.waiting_for_image)
+        await message.answer("🖼️ إذا أردت إضافة صورة، أرسلها الآن، أو أرسل /skip لتخطي.")
+
+    @dp.message(PostForm.waiting_for_image, F.photo)
+    async def receive_image(message: Message, state: FSMContext):
+        data = await state.get_data()
+        photo_file_id = message.photo[-1].file_id
+        post = {
+            "title": data['title'],
+            "text": data['text'],
+            "photo": photo_file_id,
+            "username": message.from_user.username
+        }
+        await insert_post(pool, post)
+        await message.answer("✅ تم رفع المنشور بنجاح. زادك الله توفيقًا وهدًى.", reply_markup=main_menu_kb())
+        await state.clear()
+
+    @dp.message(PostForm.waiting_for_image, F.text == "/skip")
+    async def skip_image(message: Message, state: FSMContext):
+        data = await state.get_data()
+        post = {
+            "title": data['title'],
+            "text": data['text'],
+            "photo": None,
+            "username": message.from_user.username
+        }
+        await insert_post(pool, post)
+        await message.answer("✅ تم رفع المنشور بدون صورة. بارك الله فيك.", reply_markup=main_menu_kb())
+        await state.clear()
+
+    @dp.callback_query(F.data == "delete")
+    async def handle_delete(callback: CallbackQuery, state: FSMContext):
         posts = await get_all_posts(pool)
         if not posts:
-            await callback.message.edit_text("📝 لا يوجد منشورات.", reply_markup=back_to_main_kb())
+            await callback.message.edit_text("❌ لا توجد منشورات لحذفها.", reply_markup=back_to_main_kb())
             return
-        buttons = [[InlineKeyboardButton(text=row['title'], callback_data=f"view_{row['id']}")] for row in posts]
+        buttons = [[InlineKeyboardButton(text=row['title'], callback_data=f"ask_delete_{row['id']}")] for row in posts]
         markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
-        await callback.message.edit_text("📚 اختر المنشور:", reply_markup=markup)
+        await callback.message.edit_text("🗑️ اختر المنشور الذي تريد حذفه:", reply_markup=markup)
 
-    @dp.callback_query(F.data.startswith("view_"))
-    async def show_post(callback: CallbackQuery):
-        post_id = int(callback.data.split("_")[1])
+    @dp.callback_query(F.data.startswith("ask_delete_"))
+    async def ask_delete(callback: CallbackQuery):
+        post_id = int(callback.data.split("_")[2])
         post = await get_post_by_id(pool, post_id)
         if post:
-            msg = f"<b>{post['title']}</b>\n\n{post['text']}\n\n👤 @{post['username']}"
-            if post['photo_file_id']:
-                await callback.message.answer_photo(post['photo_file_id'], caption=msg, parse_mode=ParseMode.HTML)
-            else:
-                await callback.message.answer(msg, parse_mode=ParseMode.HTML)
+            msg = f"⚠️ هل أنت متأكد أنك تريد حذف المنشور التالي؟\n\n<b>{post['title']}</b>"
+            await callback.message.edit_text(msg, reply_markup=confirm_delete_kb(post_id))
         else:
             await callback.message.answer("⛔️ المنشور غير موجود.")
 
-    @dp.callback_query(F.data == "edit")
-    async def handle_edit(callback: CallbackQuery, state: FSMContext):
-        posts = await get_all_posts(pool)
-        if not posts:
-            await callback.message.edit_text("❌ لا توجد منشورات لتعديلها.", reply_markup=back_to_main_kb())
-            return
-        buttons = [[InlineKeyboardButton(text=row['title'], callback_data=f"edit_{row['id']}")] for row in posts]
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
-        await callback.message.edit_text("✏️ اختر منشورًا لتعديله:", reply_markup=markup)
-
-    @dp.callback_query(F.data.startswith("edit_"))
-    async def edit_selected(callback: CallbackQuery, state: FSMContext):
-        post_id = int(callback.data.split("_")[1])
-        await state.update_data(edit_id=post_id)
-        await callback.message.edit_text("اختر الجزء الذي تريد تعديله:", reply_markup=edit_post_fields_kb())
-
-    @dp.callback_query(F.data == "edit_title")
-    async def edit_title(callback: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        await state.set_state(PostForm.waiting_for_edit_value)
-        await state.update_data(field="title", edit_id=data['edit_id'])
-        await callback.message.edit_text("✏️ أرسل العنوان الجديد الآن:")
-
-    @dp.callback_query(F.data == "edit_text")
-    async def edit_text(callback: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        await state.set_state(PostForm.waiting_for_edit_value)
-        await state.update_data(field="text", edit_id=data['edit_id'])
-        await callback.message.edit_text("📝 أرسل النص الجديد الآن:")
-
-    @dp.callback_query(F.data == "change_photo")
-    async def change_photo(callback: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        await state.set_state(PostForm.waiting_for_edit_value)
-        await state.update_data(field="photo_file_id", edit_id=data['edit_id'])
-        await callback.message.edit_text("📷 أرسل الصورة الجديدة الآن:")
-
-    @dp.callback_query(F.data == "remove_photo")
-    async def remove_photo(callback: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        await update_post(pool, data['edit_id'], "photo_file_id", None)
-        await callback.message.edit_text("✅ تم حذف الصورة من المنشور.", reply_markup=main_menu_kb())
-        await state.clear()
-
-    @dp.message(PostForm.waiting_for_edit_value)
-    async def receive_new_value(message: Message, state: FSMContext):
-        data = await state.get_data()
-
-        if 'edit_id' not in data or 'field' not in data:
-            await message.answer("⚠️ حصلت مشكلة في تحديد المنشور أو الحقل.")
-            return
-
-        field = data['field']
-
-        if field == "photo_file_id":
-            if not message.photo:
-                await message.answer("❌ رجاءً أرسل صورة فقط.")
-                return
-            value = message.photo[-1].file_id
-        else:
-            value = message.text
-
-        await update_post(pool, data['edit_id'], field, value)
-        field_display = {
-            "title": "العنوان",
-            "text": "النص",
-            "photo_file_id": "الصورة"
-        }
-        await message.answer(f"✅ تم تحديث {field_display.get(field, 'الحقل')} بنجاح.", reply_markup=main_menu_kb())
-        await state.clear()
+    @dp.callback_query(F.data.startswith("confirm_delete_"))
+    async def confirm_delete(callback: CallbackQuery):
+        post_id = int(callback.data.split("_")[2])
+        await delete_post(pool, post_id)
+        await callback.message.edit_text("🗑️ تم حذف المنشور بنجاح. نسأل الله الإخلاص والقبول.", reply_markup=main_menu_kb())
 
     @dp.callback_query(F.data == "back")
     async def go_back(callback: CallbackQuery):
