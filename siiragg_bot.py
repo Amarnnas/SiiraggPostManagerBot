@@ -133,20 +133,23 @@ async def main():
 
     @dp.callback_query(F.data == "edit_title")
     async def edit_title(callback: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
         await state.set_state(PostForm.waiting_for_edit_value)
-        await state.update_data(field="title")
+        await state.update_data(field="title", edit_id=data['edit_id'])
         await callback.message.edit_text("✏️ أرسل العنوان الجديد الآن:")
 
     @dp.callback_query(F.data == "edit_text")
     async def edit_text(callback: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
         await state.set_state(PostForm.waiting_for_edit_value)
-        await state.update_data(field="text")
+        await state.update_data(field="text", edit_id=data['edit_id'])
         await callback.message.edit_text("📝 أرسل النص الجديد الآن:")
 
     @dp.callback_query(F.data == "change_photo")
     async def change_photo(callback: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
         await state.set_state(PostForm.waiting_for_edit_value)
-        await state.update_data(field="photo_file_id")
+        await state.update_data(field="photo_file_id", edit_id=data['edit_id'])
         await callback.message.edit_text("📷 أرسل الصورة الجديدة الآن:")
 
     @dp.callback_query(F.data == "remove_photo")
@@ -159,6 +162,11 @@ async def main():
     @dp.message(PostForm.waiting_for_edit_value)
     async def receive_new_value(message: Message, state: FSMContext):
         data = await state.get_data()
+
+        if 'edit_id' not in data or 'field' not in data:
+            await message.answer("⚠️ حصلت مشكلة في تحديد المنشور أو الحقل.")
+            return
+
         field = data['field']
 
         if field == "photo_file_id":
