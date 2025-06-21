@@ -26,7 +26,6 @@ class PostForm(StatesGroup):
     waiting_for_edit_value = State()
     waiting_for_delete_confirm = State()
 
-
 def main_menu_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -42,9 +41,11 @@ def back_to_main_kb():
         inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]]
     )
 
-def edit_photo_kb():
+def edit_post_fields_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ تعديل العنوان", callback_data="edit_title")],
+            [InlineKeyboardButton(text="📝 تعديل النص", callback_data="edit_text")],
             [InlineKeyboardButton(text="📤 تغيير الصورة", callback_data="change_photo")],
             [InlineKeyboardButton(text="🗑️ حذف الصورة فقط", callback_data="remove_photo")],
             [InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]
@@ -128,7 +129,19 @@ async def main():
     async def edit_selected(callback: CallbackQuery, state: FSMContext):
         post_id = int(callback.data.split("_")[1])
         await state.update_data(edit_id=post_id)
-        await callback.message.edit_text("اختر الجزء الذي تريد تعديله:", reply_markup=edit_photo_kb())
+        await callback.message.edit_text("اختر الجزء الذي تريد تعديله:", reply_markup=edit_post_fields_kb())
+
+    @dp.callback_query(F.data == "edit_title")
+    async def edit_title(callback: CallbackQuery, state: FSMContext):
+        await state.set_state(PostForm.waiting_for_edit_value)
+        await state.update_data(field="title")
+        await callback.message.edit_text("✏️ أرسل العنوان الجديد الآن:")
+
+    @dp.callback_query(F.data == "edit_text")
+    async def edit_text(callback: CallbackQuery, state: FSMContext):
+        await state.set_state(PostForm.waiting_for_edit_value)
+        await state.update_data(field="text")
+        await callback.message.edit_text("📝 أرسل النص الجديد الآن:")
 
     @dp.callback_query(F.data == "change_photo")
     async def change_photo(callback: CallbackQuery, state: FSMContext):
@@ -143,12 +156,26 @@ async def main():
         await callback.message.edit_text("✅ تم حذف الصورة من المنشور.", reply_markup=main_menu_kb())
         await state.clear()
 
-    @dp.message(PostForm.waiting_for_edit_value, F.photo)
-    async def receive_new_photo(message: Message, state: FSMContext):
-        file_id = message.photo[-1].file_id
+    @dp.message(PostForm.waiting_for_edit_value)
+    async def receive_new_value(message: Message, state: FSMContext):
         data = await state.get_data()
-        await update_post(pool, data['edit_id'], data['field'], file_id)
-        await message.answer("✅ تم تحديث صورة المنشور.", reply_markup=main_menu_kb())
+        field = data['field']
+
+        if field == "photo_file_id":
+            if not message.photo:
+                await message.answer("❌ رجاءً أرسل صورة فقط.")
+                return
+            value = message.photo[-1].file_id
+        else:
+            value = message.text
+
+        await update_post(pool, data['edit_id'], field, value)
+        field_display = {
+            "title": "العنوان",
+            "text": "النص",
+            "photo_file_id": "الصورة"
+        }
+        await message.answer(f"✅ تم تحديث {field_display.get(field, 'الحقل')} بنجاح.", reply_markup=main_menu_kb())
         await state.clear()
 
     @dp.callback_query(F.data == "back")
