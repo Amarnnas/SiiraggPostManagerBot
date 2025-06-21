@@ -104,16 +104,19 @@ async def main():
     async def upload_post(callback: CallbackQuery, state: FSMContext):
         await state.set_state(PostForm.waiting_for_title)
         await callback.message.edit_text("✍️ قبل أن تكتب عنوان منشورك، تذكّر أن الله يراك، وأن الكلمة أمانة.\n\nاختر عنوانًا يعبر عن الحق، ويهدي القلوب، ويكون شاهدًا لك لا عليك.\n\nأرسل الآن عنوان المنشور جزاك الله خيرًا:")
+
     @dp.message(PostForm.waiting_for_title)
     async def receive_title(message: Message, state: FSMContext):
         await state.update_data(title=message.text)
         await state.set_state(PostForm.waiting_for_text)
         await message.answer("📝 قبل أن تكتب محتوى منشورك، اجعل قلبك حاضرًا، ونيّتك صادقة.\n\nفإن الكلمة قد ترفعك عند الله، أو تهوي بك إن لم تتقِ فيها ربك.\n\nأرسل الآن نص المنشور، نفع الله بك:")
+
     @dp.message(PostForm.waiting_for_text)
     async def receive_text(message: Message, state: FSMContext):
         await state.update_data(text=message.text)
         await state.set_state(PostForm.waiting_for_image)
-        await message.answerawait message.answer("🖼️ إن كانت الصورة تعين على الخير وتزيد المعنى وضوحًا، فأهلاً بها.\n\nاختر صورة طيبة، خالية من المنكرات، واعلم أن الله لا تخفى عليه نيتك.\n\nأرسل الصورة الآن، أو أرسل /skip لتخطيها:")
+        await message.answer("🖼️ إن كانت الصورة تعين على الخير وتزيد المعنى وضوحًا، فأهلاً بها.\n\nاختر صورة طيبة، خالية من المنكرات، واعلم أن الله لا تخفى عليه نيتك.\n\nأرسل الصورة الآن، أو أرسل /skip لتخطيها:")
+
     @dp.message(PostForm.waiting_for_image, F.photo)
     async def receive_image(message: Message, state: FSMContext):
         data = await state.get_data()
