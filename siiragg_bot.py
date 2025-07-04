@@ -377,16 +377,13 @@ async def main():
         post_id = int(callback.data.split("_")[1])
         post = await get_post_by_id(pool, post_id)
         if post:
-            try:
-    await callback.message.edit_text(
-        f"📝 هل أنت متأكد من تحديد أن هذا المنشور يحتاج تعديل؟\n\n<b>{post['title']}</b>\n\nسيُطلب منك كتابة ملاحظة توجيهية للكاتب.",
-        reply_markup=confirm_review_kb(post_id, 'needs_edit')
-    )
-except Exception:
-    await callback.message.answer(
-        f"📝 هل أنت متأكد من تحديد أن هذا المنشور يحتاج تعديل؟\n\n<b>{post['title']}</b>\n\nسيُطلب منك كتابة ملاحظة توجيهية للكاتب.",
-        reply_markup=confirm_review_kb(post_id, 'needs_edit')
-    )
+         text = f"📝 هل أنت متأكد من تحديد أن هذا المنشور يحتاج تعديل؟\n\n<b>{post['title']}</b>\n\nسيُطلب منك كتابة ملاحظة توجيهية للكاتب."
+reply_markup = confirm_review_kb(post_id, 'needs_edit')
+
+try:
+    await callback.message.edit_text(text, reply_markup=reply_markup)
+except:
+    await callback.message.answer(text, reply_markup=reply_markup)
     @dp.callback_query(F.data.startswith("reject_"))
     async def ask_reject_confirmation(callback: CallbackQuery):
         if callback.from_user.username not in REVIEWERS:
