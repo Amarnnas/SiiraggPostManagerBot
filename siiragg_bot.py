@@ -72,7 +72,33 @@ def review_post_kb(post_id):
             [InlineKeyboardButton(text="✅ يصلح للنشر", callback_data=f"approve_{post_id}")],
             [InlineKeyboardButton(text="❌ لا يصلح للنشر", callback_data=f"reject_{post_id}")],
             [InlineKeyboardButton(text="📝 يحتاج تعديل", callback_data=f"needs_edit_{post_id}")],
+            [InlineKeyboardButton(text="🔄 تعديل التصنيف", callback_data=f"change_status_{post_id}")],
             [InlineKeyboardButton(text="🔙 رجوع للمراجعة", callback_data="review_section")]
+        ]
+    )
+
+def confirm_review_kb(post_id, action):
+    action_text = {
+        'approve': 'اعتماد المنشور للنشر',
+        'reject': 'رفض المنشور',
+        'needs_edit': 'تحديد أن المنشور يحتاج تعديل'
+    }
+    
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ تأكيد القرار", callback_data=f"confirm_{action}_{post_id}")],
+            [InlineKeyboardButton(text="🔙 إلغاء", callback_data=f"review_post_{post_id}")]
+        ]
+    )
+
+def change_status_kb(post_id):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏳ بانتظار المراجعة", callback_data=f"set_status_pending_{post_id}")],
+            [InlineKeyboardButton(text="✅ معتمد للنشر", callback_data=f"set_status_approved_{post_id}")],
+            [InlineKeyboardButton(text="❌ مرفوض", callback_data=f"set_status_rejected_{post_id}")],
+            [InlineKeyboardButton(text="📝 يحتاج تعديل", callback_data=f"set_status_needs_edit_{post_id}")],
+            [InlineKeyboardButton(text="🔙 رجوع", callback_data=f"review_post_{post_id}")]
         ]
     )
 
@@ -341,33 +367,77 @@ async def main():
         else:
             await callback.message.edit_text("⛔️ المنشور غير موجود.", reply_markup=back_to_main_kb())
 
+    # معالجة أزرار المراجعة مع التأكيد
     @dp.callback_query(F.data.startswith("approve_"))
-    async def approve_post(callback: CallbackQuery):
+    async def ask_approve_confirmation(callback: CallbackQuery):
         if callback.from_user.username not in REVIEWERS:
             await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
             return
             
         post_id = int(callback.data.split("_")[1])
-        await update_post_review_status(pool, post_id, 'approved', callback.from_user.username)
-        await callback.message.edit_text("✅ تم اعتماد المنشور بنجاح. جزاك الله خيرًا على هذا التدقيق المبارك.", reply_markup=main_menu_kb(True))
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            await callback.message.edit_text(
+                f"✅ هل أنت متأكد من اعتماد هذا المنشور للنشر؟\n\n<b>{post['title']}</b>\n\nهذا القرار سيجعل المنشور متاحًا لجميع أعضاء الفريق في قسم المنشورات المراجعة.",
+                reply_markup=confirm_review_kb(post_id, 'approve')
+            )
 
     @dp.callback_query(F.data.startswith("reject_"))
-    async def reject_post(callback: CallbackQuery):
+    async def ask_reject_confirmation(callback: CallbackQuery):
         if callback.from_user.username not in REVIEWERS:
             await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
             return
             
         post_id = int(callback.data.split("_")[1])
-        await update_post_review_status(pool, post_id, 'rejected', callback.from_user.username)
-        await callback.message.edit_text("❌ تم رفض المنشور. جزاك الله خيرًا على حرصك على سلامة المحتوى.", reply_markup=main_menu_kb(True))
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            await callback.message.edit_text(
+                f"❌ هل أنت متأكد من رفض هذا المنشور؟\n\n<b>{post['title']}</b>\n\nهذا القرار سيحجب المنشور عن أعضاء الفريق العاديين.",
+                reply_markup=confirm_review_kb(post_id, 'reject')
+            )
 
     @dp.callback_query(F.data.startswith("needs_edit_"))
-    async def needs_edit_post(callback: CallbackQuery, state: FSMContext):
+    async def ask_needs_edit_confirmation(callback: CallbackQuery):
         if callback.from_user.username not in REVIEWERS:
             await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
             return
             
         post_id = int(callback.data.split("_")[2])
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            await callback.message.edit_text(
+                f"📝 هل أنت متأكد من تحديد أن هذا المنشور يحتاج تعديل؟\n\n<b>{post['title']}</b>\n\nسيُطلب منك كتابة ملاحظة توجيهية للكاتب.",
+                reply_markup=confirm_review_kb(post_id, 'needs_edit')
+            )
+
+    # تأكيد القرارات
+    @dp.callback_query(F.data.startswith("confirm_approve_"))
+    async def confirm_approve_post(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[2])
+        await update_post_review_status(pool, post_id, 'approved', callback.from_user.username)
+        await callback.message.edit_text("✅ تم اعتماد المنشور بنجاح. جزاك الله خيرًا على هذا التدقيق المبارك.", reply_markup=main_menu_kb(True))
+
+    @dp.callback_query(F.data.startswith("confirm_reject_"))
+    async def confirm_reject_post(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[2])
+        await update_post_review_status(pool, post_id, 'rejected', callback.from_user.username)
+        await callback.message.edit_text("❌ تم رفض المنشور. جزاك الله خيرًا على حرصك على سلامة المحتوى.", reply_markup=main_menu_kb(True))
+
+    @dp.callback_query(F.data.startswith("confirm_needs_edit_"))
+    async def confirm_needs_edit_post(callback: CallbackQuery, state: FSMContext):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[3])
         await state.update_data(review_post_id=post_id)
         await state.set_state(PostForm.waiting_for_review_note)
         await callback.message.edit_text("✒️ اكتب ملاحظتك المباركة على المنشور ليتم تعديله وفقًا لتوجيهك:")
@@ -381,6 +451,52 @@ async def main():
         await update_post_review_status(pool, post_id, 'needs_edit', message.from_user.username, note)
         await message.answer("📝 تم حفظ ملاحظتك المباركة. جزاك الله خيرًا على هذا التوجيه النافع.", reply_markup=main_menu_kb(True))
         await state.clear()
+
+    # تعديل التصنيف
+    @dp.callback_query(F.data.startswith("change_status_"))
+    async def change_status_menu(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[2])
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            current_status = {
+                'pending': '⏳ بانتظار المراجعة',
+                'approved': '✅ معتمد للنشر',
+                'rejected': '❌ مرفوض',
+                'needs_edit': '📝 يحتاج تعديل'
+            }.get(post['status'], 'غير محدد')
+            
+            await callback.message.edit_text(
+                f"🔄 تعديل تصنيف المنشور:\n\n<b>{post['title']}</b>\n\nالتصنيف الحالي: {current_status}\n\nاختر التصنيف الجديد:",
+                reply_markup=change_status_kb(post_id)
+            )
+
+    @dp.callback_query(F.data.startswith("set_status_"))
+    async def set_new_status(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        parts = callback.data.split("_")
+        new_status = parts[2]
+        post_id = int(parts[3])
+        
+        await update_post_review_status(pool, post_id, new_status, callback.from_user.username)
+        
+        status_text = {
+            'pending': '⏳ بانتظار المراجعة',
+            'approved': '✅ معتمد للنشر',
+            'rejected': '❌ مرفوض',
+            'needs_edit': '📝 يحتاج تعديل'
+        }.get(new_status, 'غير محدد')
+        
+        await callback.message.edit_text(
+            f"✅ تم تعديل تصنيف المنشور بنجاح إلى: {status_text}\n\nبارك الله فيك على هذا التدقيق المبارك.",
+            reply_markup=main_menu_kb(True)
+        )
 
     @dp.callback_query(F.data == "edit")
     async def handle_edit(callback: CallbackQuery, state: FSMContext):
