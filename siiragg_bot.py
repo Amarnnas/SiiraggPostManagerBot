@@ -44,7 +44,7 @@ def main_menu_kb(is_reviewer=False):
 
 def back_to_main_kb():
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]]
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_main")]]
     )
 
 def edit_post_fields_kb():
@@ -54,7 +54,7 @@ def edit_post_fields_kb():
             [InlineKeyboardButton(text="📝 تعديل النص", callback_data="edit_text")],
             [InlineKeyboardButton(text="📤 تغيير الصورة", callback_data="change_photo")],
             [InlineKeyboardButton(text="🗑️ حذف الصورة فقط", callback_data="remove_photo")],
-            [InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]
+            [InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_main")]
         ]
     )
 
@@ -62,7 +62,7 @@ def confirm_delete_kb(post_id):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ تأكيد الحذف", callback_data=f"confirm_delete_{post_id}")],
-            [InlineKeyboardButton(text="🔙 إلغاء", callback_data="back")]
+            [InlineKeyboardButton(text="🔙 إلغاء", callback_data="back_to_main")]
         ]
     )
 
@@ -73,6 +73,7 @@ def review_post_kb(post_id):
             [InlineKeyboardButton(text="❌ لا يصلح للنشر", callback_data=f"reject_{post_id}")],
             [InlineKeyboardButton(text="📝 يحتاج تعديل", callback_data=f"needs_edit_{post_id}")],
             [InlineKeyboardButton(text="🔄 تعديل التصنيف", callback_data=f"change_status_{post_id}")],
+            [InlineKeyboardButton(text="📋 عرض معلومات المراجعة", callback_data=f"show_review_info_{post_id}")],
             [InlineKeyboardButton(text="🔙 رجوع للمراجعة", callback_data="review_section")]
         ]
     )
@@ -107,7 +108,7 @@ def view_categories_kb():
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ منشورات تمّت مراجعتها", callback_data="view_approved")],
             [InlineKeyboardButton(text="⏳ منشورات بانتظار المراجعة", callback_data="view_pending")],
-            [InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]
+            [InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_main")]
         ]
     )
 
@@ -334,7 +335,7 @@ async def main():
                 callback_data=f"review_post_{row['id']}"
             )])
             
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_main")]])
         await callback.message.edit_text("🧾 اختر المنشور الذي تريد مراجعته وتدقيقه:\n\n⏳ بانتظار المراجعة\n✅ معتمد\n❌ مرفوض\n📝 يحتاج تعديل", reply_markup=markup)
 
     @dp.callback_query(F.data.startswith("review_post_"))
@@ -366,6 +367,55 @@ async def main():
                 await callback.message.edit_text(msg, reply_markup=review_post_kb(post_id))
         else:
             await callback.message.edit_text("⛔️ المنشور غير موجود.", reply_markup=back_to_main_kb())
+
+    # عرض معلومات المراجعة في رسالة منفصلة
+    @dp.callback_query(F.data.startswith("show_review_info_"))
+    async def show_review_info(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ هذا القسم مخصص للمراجعين والمشايخ فقط", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[3])
+        post = await get_post_by_id(pool, post_id)
+        if post:
+            # تنسيق معلومات المراجعة للنسخ
+            info_msg = f"📋 <b>معلومات مراجعة المنشور #{post_id}</b>\n\n"
+            info_msg += f"📝 <b>العنوان:</b> {post['title']}\n\n"
+            
+            # حالة المنشور
+            status_text = {
+                'pending': '⏳ بانتظار المراجعة',
+                'approved': '✅ معتمد للنشر',
+                'rejected': '❌ مرفوض',
+                'needs_edit': '📝 يحتاج تعديل'
+            }.get(post['status'], 'غير محدد')
+            info_msg += f"🏷️ <b>الحالة:</b> {status_text}\n\n"
+            
+            # معلومات المراجع
+            if post['reviewed_by']:
+                info_msg += f"👤 <b>المراجع:</b> @{post['reviewed_by']}\n\n"
+                
+            if post['reviewed_at']:
+                review_date = post['reviewed_at'].strftime("%Y-%m-%d %H:%M")
+                info_msg += f"📅 <b>تاريخ المراجعة:</b> {review_date}\n\n"
+                
+            # ملاحظة المراجع
+            if post['review_note']:
+                info_msg += f"📝 <b>ملاحظة المراجع:</b>\n{post['review_note']}\n\n"
+                
+            # معلومات الكاتب الأصلي
+            info_msg += f"👤 <b>كاتب المنشور:</b> @{post['username']}\n"
+            
+            if post['created_at']:
+                created_date = post['created_at'].strftime("%Y-%m-%d %H:%M")
+                info_msg += f"📅 <b>تاريخ الإنشاء:</b> {created_date}"
+            
+            # إرسال الرسالة المنفصلة
+            await callback.message.answer(info_msg, reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 رجوع للمنشور", callback_data=f"review_post_{post_id}")]]
+            ))
+        else:
+            await callback.answer("⛔️ المنشور غير موجود.", show_alert=True)
 
     # معالجة أزرار المراجعة مع التأكيد
     @dp.callback_query(F.data.startswith("approve_"))
@@ -452,7 +502,7 @@ async def main():
         await message.answer("📝 تم حفظ ملاحظتك المباركة. جزاك الله خيرًا على هذا التوجيه النافع.", reply_markup=main_menu_kb(True))
         await state.clear()
 
-    # تعديل التصنيف
+    # تعديل التصنيف - المعالج الأساسي
     @dp.callback_query(F.data.startswith("change_status_"))
     async def change_status_menu(callback: CallbackQuery):
         if callback.from_user.username not in REVIEWERS:
@@ -474,28 +524,73 @@ async def main():
                 reply_markup=change_status_kb(post_id)
             )
 
-    @dp.callback_query(F.data.startswith("set_status_"))
-    async def set_new_status(callback: CallbackQuery):
+    # معالجات تعديل التصنيف المباشر
+    @dp.callback_query(F.data.startswith("set_status_pending_"))
+    async def set_status_pending(callback: CallbackQuery):
         if callback.from_user.username not in REVIEWERS:
             await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
             return
             
-        parts = callback.data.split("_")
-        new_status = parts[2]
-        post_id = int(parts[3])
-        
-        await update_post_review_status(pool, post_id, new_status, callback.from_user.username)
-        
-        status_text = {
-            'pending': '⏳ بانتظار المراجعة',
-            'approved': '✅ معتمد للنشر',
-            'rejected': '❌ مرفوض',
-            'needs_edit': '📝 يحتاج تعديل'
-        }.get(new_status, 'غير محدد')
+        post_id = int(callback.data.split("_")[3])
+        await update_post_review_status(pool, post_id, 'pending', callback.from_user.username)
         
         await callback.message.edit_text(
-            f"✅ تم تعديل تصنيف المنشور بنجاح إلى: {status_text}\n\nبارك الله فيك على هذا التدقيق المبارك.",
-            reply_markup=main_menu_kb(True)
+            f"✅ تم تعديل تصنيف المنشور بنجاح إلى: ⏳ بانتظار المراجعة\n\nبارك الله فيك على هذا التدقيق المبارك.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 رجوع للمنشور", callback_data=f"review_post_{post_id}")],
+                [InlineKeyboardButton(text="🏠 القائمة الرئيسية", callback_data="back_to_main")]
+            ])
+        )
+
+    @dp.callback_query(F.data.startswith("set_status_approved_"))
+    async def set_status_approved(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[3])
+        await update_post_review_status(pool, post_id, 'approved', callback.from_user.username)
+        
+        await callback.message.edit_text(
+            f"✅ تم تعديل تصنيف المنشور بنجاح إلى: ✅ معتمد للنشر\n\nبارك الله فيك على هذا التدقيق المبارك.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 رجوع للمنشور", callback_data=f"review_post_{post_id}")],
+                [InlineKeyboardButton(text="🏠 القائمة الرئيسية", callback_data="back_to_main")]
+            ])
+        )
+
+    @dp.callback_query(F.data.startswith("set_status_rejected_"))
+    async def set_status_rejected(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[3])
+        await update_post_review_status(pool, post_id, 'rejected', callback.from_user.username)
+        
+        await callback.message.edit_text(
+            f"✅ تم تعديل تصنيف المنشور بنجاح إلى: ❌ مرفوض\n\nبارك الله فيك على هذا التدقيق المبارك.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 رجوع للمنشور", callback_data=f"review_post_{post_id}")],
+                [InlineKeyboardButton(text="🏠 القائمة الرئيسية", callback_data="back_to_main")]
+            ])
+        )
+
+    @dp.callback_query(F.data.startswith("set_status_needs_edit_"))
+    async def set_status_needs_edit(callback: CallbackQuery):
+        if callback.from_user.username not in REVIEWERS:
+            await callback.answer("❌ غير مصرح لك بهذا الإجراء", show_alert=True)
+            return
+            
+        post_id = int(callback.data.split("_")[4])
+        await update_post_review_status(pool, post_id, 'needs_edit', callback.from_user.username)
+        
+        await callback.message.edit_text(
+            f"✅ تم تعديل تصنيف المنشور بنجاح إلى: 📝 يحتاج تعديل\n\nبارك الله فيك على هذا التدقيق المبارك.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 رجوع للمنشور", callback_data=f"review_post_{post_id}")],
+                [InlineKeyboardButton(text="🏠 القائمة الرئيسية", callback_data="back_to_main")]
+            ])
         )
 
     @dp.callback_query(F.data == "edit")
@@ -513,7 +608,7 @@ async def main():
                 'needs_edit': '📝'
             }.get(row['status'], '⏳')
             buttons.append([InlineKeyboardButton(text=f"{status_emoji} {row['title']}", callback_data=f"select_edit_{row['id']}")])
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_main")]])
         await callback.message.edit_text("✏️ اختر المنشور الذي تريد تعديله:", reply_markup=markup)
 
     @dp.callback_query(F.data.startswith("select_edit_"))
@@ -597,7 +692,7 @@ async def main():
                 'needs_edit': '📝'
             }.get(row['status'], '⏳')
             buttons.append([InlineKeyboardButton(text=f"{status_emoji} {row['title']}", callback_data=f"ask_delete_{row['id']}")])
-        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back")]])
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="🔙 رجوع", callback_data="back_to_main")]])
         await callback.message.edit_text("🗑️ اختر المنشور الذي تريد حذفه:", reply_markup=markup)
 
     @dp.callback_query(F.data.startswith("ask_delete_"))
@@ -616,6 +711,14 @@ async def main():
         await delete_post(pool, post_id)
         await callback.message.edit_text("🗑️ تم حذف المنشور بنجاح. نسأل الله الإخلاص والقبول.", reply_markup=main_menu_kb(callback.from_user.username in REVIEWERS))
 
+    # معالج الرجوع الرئيسي
+    @dp.callback_query(F.data == "back_to_main")
+    async def go_back_to_main(callback: CallbackQuery, state: FSMContext):
+        await state.clear()
+        is_reviewer = callback.from_user.username in REVIEWERS
+        await callback.message.edit_text("🔙 رجعناك للقائمة الرئيسية جزاك الله خيرا 🌿", reply_markup=main_menu_kb(is_reviewer))
+
+    # معالج الرجوع القديم للتوافق
     @dp.callback_query(F.data == "back")
     async def go_back(callback: CallbackQuery, state: FSMContext):
         await state.clear()
